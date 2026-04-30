@@ -9,7 +9,7 @@ fn help(output: *std.Io.Writer) !void {
     try output.print("quit - exit quicashell\n", .{});
 }
 
-fn eval(line: []const u8, output: *std.Io.Writer, io: Io) !void {
+fn eval(line: []const u8, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocator) !void {
     var it = std.mem.splitScalar(u8, line, ' ');
     const cmd = it.next();
 
@@ -19,19 +19,35 @@ fn eval(line: []const u8, output: *std.Io.Writer, io: Io) !void {
         quit = true;
     } else if (std.mem.eql(u8, cmd.?, "endpoint") == true) {
         endpoint = try quicashell.Quic.init(io, "0.0.0.0", 24242);
-        // TODO: Bind local port, if specified.
+        // TODO: Allow local port and IP to be specified.
+    } else if (std.mem.eql(u8, cmd.?, "dumpinit") == true) {
+        var record: std.ArrayList(u8) = .empty;
+        defer record.deinit(alloc);
+
+        // Set aside 5 bytes for the record header to be filled in.
+        try record.resize(alloc, 5);
+        try quicashell.Tls.CreateClientHello(&record, io, alloc);
+
+        const OldProtocolVersion: u16 = 0x0303; // TODO: redundant; remove.
+        record.items[0] = 22; // TODO: redundant; remove.
+        record.items[1] = OldProtocolVersion >> 8;
+        record.items[2] = OldProtocolVersion & 0xFF;
+        record.items[3] = @truncate((record.items.len - 5) >> 8);
+        record.items[4] = @truncate((record.items.len - 5) & 0xFF);
+
+        try quicashell.hexdumpSlice(record.items, output);
     } else {
         try output.print("Invalid command: {s}.\n", .{cmd.?});
     }
 }
 
-fn repl(input: *std.Io.Reader, output: *std.Io.Writer, io: Io) !void {
+fn repl(input: *std.Io.Reader, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocator) !void {
     while (!quit) {
         try output.print("> ", .{});
         try output.flush();
         const line = input.takeDelimiterExclusive('\n') catch break;
         input.toss(1); // Discard newline.
-        try eval(line, output, io);
+        try eval(line, output, io, alloc);
         try output.flush();
     }
 }
@@ -54,7 +70,7 @@ pub fn main(init: std.process.Init) !void {
     var stdin_reader = std.Io.File.stdin().reader(io, &stdin_buffer);
     const stdin = &stdin_reader.interface;
 
-    try repl(stdin, stdout, io);
+    try repl(stdin, stdout, io, arena);
 }
 
 test "simple test" {

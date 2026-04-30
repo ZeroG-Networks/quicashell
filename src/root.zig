@@ -2,12 +2,17 @@
 const std = @import("std");
 
 const quic = @import("quic.zig");
+const tls = @import("tls.zig");
+
 pub const Quic = quic.Quic;
+pub const Tls = tls;
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
+pub fn hexdumpSlice(bytes: []u8, out: *std.Io.Writer) !void {
+    try out.print("Length: {} bytes.\n", .{bytes.len});
+    for (bytes) |byte| {
+        try out.print("{x:0>2} ", .{byte});
+    }
+    try out.print("\n", .{});
 }
 
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
-}
+// TODO: test for hexdumpSlice.
