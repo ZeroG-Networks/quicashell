@@ -1,5 +1,7 @@
 // QUIC packet creation, parsing, and manipulation.
 
+// TODO: endian stuff
+
 const std = @import("std");
 
 const QuicVersionNegotiation: u32 = 0x00000000;
@@ -7,6 +9,22 @@ const QuicVersion1: u32 = 0x00000001;
 
 const DefaultDestConnIdLen: u8 = 8;
 const DefaultSourceConnIdLen: u8 = 0;
+
+// Variable-length integer encodeing from Section 16 of RFC 9000.
+const VarIntError = error{TooBig};
+pub fn lenOfVarInt(value: u64) VarIntError!u8 {
+    if (value < 64) return 1;
+    if (value < 16383) return 2;
+    if (value < 1073741823) return 4;
+    if (value < 4611686018427387903) return 8;
+    return VarIntError.TooBig;
+}
+pub fn writeVarInt(value: u64, writer: *std.Io.Writer) !void {
+    for (std.mem.asBytes(&value)) |byte| {
+        if (byte == 0) continue;
+        try writer.writeByte(byte);
+    }
+}
 
 pub const ConnectionId = struct {
     const Self = @This();
@@ -60,6 +78,9 @@ pub const QuicPacket = struct {
 
     // Serialize the packet into a given buffer.
     pub fn serialize(self: Self, buf_stream: *std.Io.Writer) !void {
+        const length: u32 = 1200; // TODO: use a real value.
+        const pktnum: u32 = 42; // TODO: use a real value.
+
         var first_byte: u8 = self.version_specific_bits & 0x7F;
         if (self.use_long_form) first_byte |= 0x80;
 
@@ -73,7 +94,11 @@ pub const QuicPacket = struct {
         try buf_stream.writeByte(self.sconn_id_len);
         if (self.sconn_id_len != 0)
             try buf_stream.writeAll(self.sconn_id.bytes);
-        // TODO token, length, packet number, payload
+        // TODO: token support
+        try buf_stream.writeByte(0); // no token present.
+        try writeVarInt(length, buf_stream);
+        try writeVarInt(pktnum, buf_stream);
+        // TODO: payload
     }
 
     // Read this packet from a socket.
