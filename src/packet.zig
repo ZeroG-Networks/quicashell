@@ -2,11 +2,23 @@
 
 const std = @import("std");
 
+const QuicVersionNegotiation: u32 = 0x00000000;
+const QuicVersion1: u32 = 0x00000001;
+
+const DefaultDestConnIdLen: u8 = 8;
+const DefaultSourceConnIdLen: u8 = 0;
+
 pub const ConnectionId = struct {
     const Self = @This();
 
-    pub fn init() ConnectionId {
-        return ConnectionId{};
+    seqno: u32 = undefined,
+    bytes: []const u8 = undefined,
+
+    pub fn init(id: []const u8, seqno: u32) ConnectionId {
+        return ConnectionId{
+            .seqno = seqno,
+            .bytes = id,
+        };
     }
     // TODO methods for working with QUIC connection IDs.
 };
@@ -19,9 +31,9 @@ pub const QuicPacket = struct {
     version_specific_bits: u8 = undefined,
     version: u32 = undefined,
     dconn_id_len: u8 = undefined,
-    //dconn_id: ConnectionId,
+    dconn_id: ConnectionId = undefined,
     sconn_id_len: u8 = undefined,
-    //sconn_id: ConnectionId,
+    sconn_id: ConnectionId = undefined,
 
     pub fn init() QuicPacket {
         return QuicPacket{};
@@ -36,9 +48,14 @@ pub const QuicPacket = struct {
         // - 2 reserved bits
         // - 2 bits for packet number length
         self.version_specific_bits = 0x40; // make packet number 1 byte (TODO)
-        self.version = 0x00000001; // TODO QUIC v1 constant
-        self.dconn_id_len = 0;
-        self.sconn_id_len = 0;
+        self.version = QuicVersion1;
+        self.dconn_id_len = DefaultDestConnIdLen;
+        // TODO: nonsense test ID
+        const dcid_bytes = [_]u32{ 0x12345678, 0x9ABCDEF0 };
+        self.dconn_id = ConnectionId.init(std.mem.sliceAsBytes(dcid_bytes[0..]), 1);
+        self.sconn_id_len = DefaultSourceConnIdLen;
+        // TODO: left undefined
+        //self.sconn_id = ConnectionId.init();
     }
 
     // Serialize the packet into a given buffer.
@@ -52,8 +69,11 @@ pub const QuicPacket = struct {
         try buf_stream.writeByte(@as(u8, @intCast(self.version >> 8)));
         try buf_stream.writeByte(@as(u8, @intCast(self.version & 0xFF)));
         try buf_stream.writeByte(self.dconn_id_len);
+        try buf_stream.writeAll(self.dconn_id.bytes);
         try buf_stream.writeByte(self.sconn_id_len);
-        // TODO
+        if (self.sconn_id_len != 0)
+            try buf_stream.writeAll(self.sconn_id.bytes);
+        // TODO token, length, packet number, payload
     }
 
     // Read this packet from a socket.
