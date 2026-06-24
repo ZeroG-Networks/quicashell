@@ -1,6 +1,7 @@
 const std = @import("std");
 const net = std.Io.net;
 
+// This represents a QUIC endpoint.
 pub const Quic = struct {
     const Self = @This();
 

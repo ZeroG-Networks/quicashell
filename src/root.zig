@@ -2,10 +2,12 @@
 const std = @import("std");
 
 const quic = @import("quic.zig");
+const packet = @import("packet.zig");
 const tls = @import("tls.zig");
 
 pub const Quic = quic.Quic;
 pub const Tls = tls;
+pub const QuicPacket = packet.QuicPacket;
 
 pub fn hexdumpSlice(bytes: []u8, out: *std.Io.Writer) !void {
     try out.print("Length: {} bytes.\n", .{bytes.len});
