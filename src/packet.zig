@@ -1,9 +1,8 @@
 // QUIC packet creation, parsing, and manipulation.
 
-// TODO: endian stuff
-
 const std = @import("std");
 
+const tls = @import("tls.zig");
 const varint = @import("varint.zig");
 
 const QuicVersionNegotiation: u32 = 0x00000000;
@@ -11,6 +10,10 @@ const QuicVersion1: u32 = 0x00000001;
 
 const DefaultDestConnIdLen: u8 = 8;
 const DefaultSourceConnIdLen: u8 = 0;
+
+const QuicFrameType = enum(u8) {
+    CryptoFrameType = 0x06,
+};
 
 pub const ConnectionId = struct {
     const Self = @This();
@@ -27,6 +30,21 @@ pub const ConnectionId = struct {
     // TODO methods for working with QUIC connection IDs.
 };
 
+// Write the given data as the content of a CRYPTO frame.
+fn write_crypto_frame(data: []u8, offset: u64, writer: *std.Io.Writer) !void {
+    try varint.writeVarInt(@intFromEnum(QuicFrameType.CryptoFrameType), writer);
+    try varint.writeVarInt(offset, writer);
+    try varint.writeVarInt(data.len, writer);
+    try writer.writeAll(data);
+}
+
+const QuicPktType = enum(u8) {
+    Initial = 0x00,
+    ZeroRtt = 0x01,
+    Handshake = 0x02,
+    Retry = 0x03,
+};
+
 pub const QuicPacket = struct {
     const Self = @This();
 
@@ -39,12 +57,17 @@ pub const QuicPacket = struct {
     sconn_id_len: u8 = undefined,
     sconn_id: ConnectionId = undefined,
 
+    quic_pkt_type: QuicPktType = undefined,
+
+    // TODO: refactor how this works.
+    crypto_payloads: std.ArrayList([]u8) = .empty,
+
     pub fn init() QuicPacket {
         return QuicPacket{};
     }
 
     // Make the packet a QUIC version 1 Initial packet.
-    pub fn make_initial(self: *Self) void {
+    pub fn make_initial(self: *Self, rand: [32]u8, alloc: std.mem.Allocator) !void {
         self.use_long_form = true;
         // In version 1, the version specific bits are:
         // - 1 bit for the fixed bit (1)
@@ -60,9 +83,19 @@ pub const QuicPacket = struct {
         self.sconn_id_len = DefaultSourceConnIdLen;
         // TODO: left undefined
         //self.sconn_id = ConnectionId.init();
+
+        self.quic_pkt_type = QuicPktType.Initial;
+
+        // Make a TLS ClientHello.
+        var buf = std.Io.Writer.Allocating.init(alloc);
+        defer buf.deinit();
+        var client_hello = tls.ClientHello.init(rand);
+        try client_hello.serialize(&buf.writer);
+        try self.crypto_payloads.append(alloc, buf.written());
     }
 
     // Serialize the packet into a given buffer.
+    // TODO: only support long headers ATM
     pub fn serialize(self: Self, buf: *std.Io.Writer.Allocating) !void {
         const length: u32 = 1200; // TODO: use a real value.
         const pktnum: u32 = 42; // TODO: use a real value.
@@ -80,10 +113,16 @@ pub const QuicPacket = struct {
         try buf.writer.writeByte(self.sconn_id_len);
         if (self.sconn_id_len != 0)
             try buf.writer.writeAll(self.sconn_id.bytes);
-        try buf.writer.writeByte(0); // no token present.
-        try varint.writeVarInt(length, &buf.writer);
-        try varint.writeVarInt(pktnum, &buf.writer);
-        // TODO: payload
+
+        if (self.quic_pkt_type == QuicPktType.Initial) {
+            try buf.writer.writeByte(0); // no token present.
+            try varint.writeVarInt(length, &buf.writer);
+            try varint.writeVarInt(pktnum, &buf.writer);
+
+            for (self.crypto_payloads.items) |crypto| {
+                try write_crypto_frame(crypto, 0, &buf.writer);
+            }
+        }
     }
 
     // Read this packet from a socket.
