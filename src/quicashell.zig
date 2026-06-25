@@ -41,13 +41,13 @@ fn eval(line: []const u8, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocat
         endpoint = try quicashell.Quic.init(io, "0.0.0.0", 24242);
         // TODO: Allow local port and IP to be specified.
     } else if (std.mem.eql(u8, cmd.?, "sendinit") == true) {
+        var buf = std.Io.Writer.Allocating.init(alloc);
+        defer buf.deinit();
         var pkt = quicashell.QuicPacket.init();
-        var buf: [1500]u8 = undefined;
-        var writer = std.Io.Writer.fixed(&buf);
         pkt.make_initial();
-        try pkt.serialize(&writer);
-        // TODO finish
-        try quicashell.hexdumpSlice(&buf, output);
+        try pkt.serialize(&buf);
+        // TODO finish actual socket send
+        try quicashell.hexdumpSlice(buf.written(), output);
     } else if (std.mem.eql(u8, cmd.?, "dumpinit") == true) {
         // Create a buffer to be used for a UDP datagram.
         // TODO datagram-level not record-level.

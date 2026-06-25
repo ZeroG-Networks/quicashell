@@ -3,24 +3,63 @@
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const VarIntError = error{TooBig};
 
 // Return the number of bytes a value will be encoded to.
 pub fn lenOfVarInt(value: u64) VarIntError!u8 {
     if (value < 64) return 1;
-    if (value < 16383) return 2;
-    if (value < 1073741823) return 4;
-    if (value < 4611686018427387903) return 8;
+    if (value < 16_383) return 2;
+    if (value < 1_073_741_823) return 4;
+    if (value < 4_611_686_018_427_387_903) return 8;
+    return VarIntError.TooBig;
+}
+
+fn encodedLen(value: u64) VarIntError!u8 {
+    if (value < 64) return 0x00;
+    if (value < 16_383) return 0x40;
+    if (value < 1_073_741_823) return 0x80;
+    if (value < 4_611_686_018_427_387_903) return 0xC0;
     return VarIntError.TooBig;
 }
 
 // Write out an encoded value.
 pub fn writeVarInt(value: u64, writer: *std.Io.Writer) !void {
-    for (std.mem.asBytes(&value)) |byte| {
-        if (byte == 0) continue;
-        try writer.writeByte(byte);
+    const myValue = std.mem.nativeToBig(u64, value);
+    const len = try lenOfVarInt(value);
+    const elen = try encodedLen(value);
+    for (std.mem.asBytes(&myValue), 0..) |byte, i| {
+        if (i < 8 - len) continue;
+        if (i == 8 - len) try writer.writeByte(elen | byte);
+        if (i > 8 - len) try writer.writeByte(byte);
     }
+}
+
+// Examples from RFC 9000, Appendix A.1.
+test "one-byte encode" {
+    var buf = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buf.deinit();
+    try writeVarInt(37, &buf.writer);
+    try expectEqualSlices(u8, buf.written(), &[_]u8{0x25});
+}
+test "two-byte encode" {
+    var buf = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buf.deinit();
+    try writeVarInt(15_293, &buf.writer);
+    try expectEqualSlices(u8, buf.written(), &[_]u8{ 0x7b, 0xbd });
+}
+test "four-byte encode" {
+    var buf = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buf.deinit();
+    try writeVarInt(494_878_333, &buf.writer);
+    try expectEqualSlices(u8, buf.written(), &[_]u8{ 0x9d, 0x7f, 0x3e, 0x7d });
+}
+test "eight-byte encode" {
+    var buf = std.Io.Writer.Allocating.init(std.testing.allocator);
+    defer buf.deinit();
+    try writeVarInt(151_288_809_941_952_652, &buf.writer);
+    try expectEqualSlices(u8, buf.written(), &[_]u8{ 0xc2, 0x19, 0x7c, 0x5e, 0xff, 0x14, 0xe8, 0x8c });
 }
 
 // Return a decoded value from the encoded bytes.
@@ -37,27 +76,27 @@ pub fn readVarInt(encoded: []const u8) !u64 {
 }
 
 // Examples from RFC 9000, Appendix A.1.
-test "one-byte" {
+test "one-byte decode" {
     const bytes = [_]u8{0x25};
     const val: u64 = try readVarInt(&bytes);
     try expectEqual(37, val);
 }
-test "two-byte" {
+test "two-byte decode" {
     const bytes = [_]u8{ 0x7b, 0xbd };
     const val: u64 = try readVarInt(&bytes);
     try expectEqual(15_293, val);
 }
-test "two-byte #2" {
+test "two-byte decode #2" {
     const bytes = [_]u8{ 0x40, 0x25 };
     const val: u64 = try readVarInt(&bytes);
     try expectEqual(37, val);
 }
-test "four-byte" {
+test "four-byte decode" {
     const bytes = [_]u8{ 0x9d, 0x7f, 0x3e, 0x7d };
     const val: u64 = try readVarInt(&bytes);
     try expectEqual(494_878_333, val);
 }
-test "eight-byte" {
+test "eight-byte decode" {
     const bytes = [_]u8{ 0xc2, 0x19, 0x7c, 0x5e, 0xff, 0x14, 0xe8, 0x8c };
     const val: u64 = try readVarInt(&bytes);
     try expectEqual(151_288_809_941_952_652, val);
