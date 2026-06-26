@@ -17,4 +17,4 @@ Indicate a specific local IP address and UDP port to be used:
 
 Create a client Initial packet and hex dump it:
 
-    dumpinit
+    sendinit

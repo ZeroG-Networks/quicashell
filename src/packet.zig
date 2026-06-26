@@ -129,5 +129,36 @@ pub const QuicPacket = struct {
     // TODO
 };
 
+// Section 5.2 of RFC 9001 - Initial packets use secrets derived from the
+// destination connection ID field from the clients first Initial packet.
+//fn initial_secret(client_dcid: []u8) []u8 {
+//    const initial_salt = [_]u8{0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a};
+//    return hkdfExtract(initial_salt, client_dcid);
+//}
+
+// TODO: packet protection RFC 9001
+// Initial packets use AEAD_AES_128_GCM with keys derived from the destination connection ID of the first initial packet sent by the client.
+//
+//
+
 // TODO: support ability to aggregate multiple QUIC packets into a datagram,
 // and to parse datagrams that contain multiple packets, per 8999.
+//
+// Generate the header protection mask for the only supported AES-ECB option.
+//fn header_protection(hp_key: []u8, sample: [16]u8) [5]u8 {
+//    return [5]u8{0x00, 0x00, 0x00, 0x00, 0x00};
+//}
+//
+// Apply header protection to a serialized and AEAD protected packet.
+//pub fn header_protect(pkt: []u8) !void {
+//    const mask = header_protection(hp_key, sample);
+//    pn_length = (pkt[0] & 0x03) + 1;
+//    if ((pkt[0] & 0x80) == 0x80) { // Long header.
+//        pkt[0] ^= mask[0] & 0x0f;
+//    } else {
+//        pkt[0] ^= mask[0] & 0x1f;
+//    }
+//    for (pn_offset..pn_offset+pn_length) |i| {
+//        pkt[i] ^= mask[1+i];
+//    }
+//}

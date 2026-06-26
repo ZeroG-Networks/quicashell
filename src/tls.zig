@@ -22,6 +22,16 @@ pub const ClientHello = struct {
 
     // Write out according to the protocol.
     pub fn serialize(self: Self, writer: *std.Io.Writer) !void {
+        // First write the header of a TLS Handshake message.
+        try writer.writeByte(HandshakeClientHello);
+        // 3 bytes of length.
+        try writer.writeByte(0x00);
+        try writer.writeByte(0x00);
+        try writer.writeByte(0x33);
+        // TODO: Fixed-length -- later serialize components then set length
+        //       and append the serialized contents.
+
+        // Actual ClientHello contents below.
         try writer.writeByte(@as(u8, OldProtocolVersion >> 8));
         try writer.writeByte(@as(u8, OldProtocolVersion & 0xFF));
         try writer.writeAll(&self.random);
@@ -39,9 +49,9 @@ pub const ClientHello = struct {
         try writer.writeByte(0x01); // Only a single byte is needed for the list.
         try writer.writeByte(0x00); // Only null compression is supported in TLS 1.3.
 
-        // Fill in extensions, with two bytes reserved for extensions length.
+        // Fill in extensions, with two bytes for extensions length.
         try writer.writeByte(0x00);
-        try writer.writeByte(0x00);
+        try writer.writeByte(0x09);
         // Add the supported-versions extension; only TLS 1.3 is supported.
         try writer.writeByte(@as(u8, SupportedVersionsExtension >> 8));
         try writer.writeByte(@as(u8, SupportedVersionsExtension & 0xFF));
