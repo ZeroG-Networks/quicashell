@@ -2,6 +2,7 @@
 
 const std = @import("std");
 
+const crypto = @import("crypto.zig");
 const tls = @import("tls.zig");
 const varint = @import("varint.zig");
 
@@ -59,6 +60,9 @@ pub const QuicPacket = struct {
 
     quic_pkt_type: QuicPktType = undefined,
 
+    // Packet number.
+    pktnum: u32 = undefined,
+
     // TODO: refactor how this works.
     crypto_payloads: std.ArrayList([]u8) = .empty,
 
@@ -85,6 +89,7 @@ pub const QuicPacket = struct {
         //self.sconn_id = ConnectionId.init();
 
         self.quic_pkt_type = QuicPktType.Initial;
+        self.pktnum = 1;
 
         // Make a TLS ClientHello.
         var buf = std.Io.Writer.Allocating.init(alloc);
@@ -95,10 +100,10 @@ pub const QuicPacket = struct {
     }
 
     // Serialize the packet into a given buffer.
+    // TODO: should send unprotected header and payload to separate buffers for protection to be applied, then concatenate into packets
     // TODO: only support long headers ATM
     pub fn serialize(self: Self, buf: *std.Io.Writer.Allocating) !void {
         const length: u32 = 1200; // TODO: use a real value.
-        const pktnum: u32 = 42; // TODO: use a real value.
 
         var first_byte: u8 = self.version_specific_bits & 0x7F;
         if (self.use_long_form) first_byte |= 0x80;
@@ -117,10 +122,10 @@ pub const QuicPacket = struct {
         if (self.quic_pkt_type == QuicPktType.Initial) {
             try buf.writer.writeByte(0); // no token present.
             try varint.writeVarInt(length, &buf.writer);
-            try varint.writeVarInt(pktnum, &buf.writer);
+            try varint.writeVarInt(self.pktnum, &buf.writer);
 
-            for (self.crypto_payloads.items) |crypto| {
-                try write_crypto_frame(crypto, 0, &buf.writer);
+            for (self.crypto_payloads.items) |f| {
+                try write_crypto_frame(f, 0, &buf.writer);
             }
         }
     }
@@ -128,18 +133,6 @@ pub const QuicPacket = struct {
     // Read this packet from a socket.
     // TODO
 };
-
-// Section 5.2 of RFC 9001 - Initial packets use secrets derived from the
-// destination connection ID field from the clients first Initial packet.
-//fn initial_secret(client_dcid: []u8) []u8 {
-//    const initial_salt = [_]u8{0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a};
-//    return hkdfExtract(initial_salt, client_dcid);
-//}
-
-// TODO: packet protection RFC 9001
-// Initial packets use AEAD_AES_128_GCM with keys derived from the destination connection ID of the first initial packet sent by the client.
-//
-//
 
 // TODO: support ability to aggregate multiple QUIC packets into a datagram,
 // and to parse datagrams that contain multiple packets, per 8999.
