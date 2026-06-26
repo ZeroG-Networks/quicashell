@@ -1,6 +1,8 @@
 // QUIC packet creation, parsing, and manipulation.
 
 const std = @import("std");
+const expectEqual = std.testing.expectEqual;
+const expectEqualSlices = std.testing.expectEqualSlices;
 
 const crypto = @import("crypto.zig");
 const tls = @import("tls.zig");
@@ -130,28 +132,34 @@ pub const QuicPacket = struct {
         }
     }
 
-    // Read this packet from a socket.
+    // Read this packet from a buffer, e.g. received from a UDP socket.
     // TODO
+
+    // Decode a packet header; return number of bytes read.
+    // TODO: Only long headers supported.
+    pub fn decode_header(self: *Self, buf: []const u8) usize {
+        var bytes_read: usize = 0;
+        // TODO: Validate minimal length input.
+        self.use_long_form = buf[0] & 0x80 == 0x80;
+        self.version = std.mem.readInt(u32, buf[1..5], .big);
+        self.dconn_id_len = buf[5];
+        self.dconn_id = ConnectionId.init(buf[6 .. 6 + self.dconn_id_len], 0);
+        bytes_read += 5;
+
+        return bytes_read;
+    }
 };
+
+test "header decode" {
+    const test_header = [_]u8{ 0xc3, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0x00, 0x00, 0x44, 0x9e, 0x00, 0x00, 0x00, 0x02 };
+
+    var p = QuicPacket.init();
+    _ = p.decode_header(&test_header);
+    try expectEqual(p.use_long_form, true);
+    try expectEqual(p.version, QuicVersion1);
+    try expectEqual(p.dconn_id_len, 8);
+    try expectEqualSlices(u8, p.dconn_id.bytes, &[_]u8{ 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08 });
+}
 
 // TODO: support ability to aggregate multiple QUIC packets into a datagram,
 // and to parse datagrams that contain multiple packets, per 8999.
-//
-// Generate the header protection mask for the only supported AES-ECB option.
-//fn header_protection(hp_key: []u8, sample: [16]u8) [5]u8 {
-//    return [5]u8{0x00, 0x00, 0x00, 0x00, 0x00};
-//}
-//
-// Apply header protection to a serialized and AEAD protected packet.
-//pub fn header_protect(pkt: []u8) !void {
-//    const mask = header_protection(hp_key, sample);
-//    pn_length = (pkt[0] & 0x03) + 1;
-//    if ((pkt[0] & 0x80) == 0x80) { // Long header.
-//        pkt[0] ^= mask[0] & 0x0f;
-//    } else {
-//        pkt[0] ^= mask[0] & 0x1f;
-//    }
-//    for (pn_offset..pn_offset+pn_length) |i| {
-//        pkt[i] ^= mask[1+i];
-//    }
-//}
