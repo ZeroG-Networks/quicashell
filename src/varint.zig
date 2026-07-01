@@ -16,7 +16,7 @@ pub fn lenOfVarInt(value: u64) VarIntError!u8 {
     return VarIntError.TooBig;
 }
 
-fn encodedLen(value: u64) VarIntError!u8 {
+pub fn encodedLen(value: u64) VarIntError!u8 {
     if (value < 64) return 0x00;
     if (value < 16_383) return 0x40;
     if (value < 1_073_741_823) return 0x80;

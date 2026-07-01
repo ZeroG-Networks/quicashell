@@ -10,11 +10,12 @@ const sha256 = std.crypto.hash.sha2.Sha256;
 const initialHkdf = std.crypto.kdf.hkdf.HkdfSha256;
 const initial_salt = [_]u8{ 0x38, 0x76, 0x2c, 0xf7, 0xf5, 0x59, 0x34, 0xb3, 0x4d, 0x17, 0x9a, 0xe6, 0xa4, 0xc8, 0x0c, 0xad, 0xcc, 0xbb, 0x7f, 0x0a };
 // Initial packets use AEAD_AES_128_GCM.
-const initialProtection = std.crypto.aead.Aes128Gcm;
+const initialProtection = std.crypto.aead.aes_gcm.Aes128Gcm;
+const initialHeaderProtection = std.crypto.core.aes.Aes128;
 
 const hkdfExpandLabel = std.crypto.tls.hkdfExpandLabel;
 
-const QuicCrypto = struct {
+pub const QuicCrypto = struct {
     const Self = @This();
 
     initial_secret: [32]u8 = undefined,
@@ -38,38 +39,38 @@ const QuicCrypto = struct {
     }
 
     // The provided protected text and authentication tag will be filled in.
-    pub fn protectPacket(self: QuicCrypto, protected: []u8, tag: [16]u8, payload: []u8, header: []u8, pktnum: u32) void {
+    // TODO: assumes client IV and client key
+    pub fn protectPacket(self: QuicCrypto, protected: []u8, tag: *[16]u8, payload: []u8, header: []u8, pktnum: u64) void {
         // The unprotected packet header is used as the associated data.
         const assoc = header;
 
         // The nonce combines the packet protection IV with the packet number.
         var nonce: [12]u8 = undefined;
-        std.mem.copy(u8, nonce, self.iv);
-        std.mem.writeInt(u32, &nonce[self.iv.len], pktnum, .big);
+        std.mem.writeInt(u32, nonce[0..4], 0, .big);
+        std.mem.writeInt(u64, nonce[4..], pktnum, .big);
+        for (self.client_iv, 0..) |iv, i| {
+            nonce[i] ^= iv;
+        }
 
-        initialProtection.encrypt(&protected, &tag, payload, assoc, nonce, self.key);
+        initialProtection.encrypt(protected, tag, payload, assoc, nonce, self.client_key);
     }
 
-    // TODO
-    // Generate the header protection mask for the only supported AES-ECB option.
-    //fn headerProtection(hp_key: []u8, sample: [16]u8) [5]u8 {
-    //    return [5]u8{0x00, 0x00, 0x00, 0x00, 0x00};
-    //}
-    //
     // Apply header protection to a serialized and AEAD protected packet.
-    //pub fn protectHeader(self: QuicCrypto, pkt: []u8) !void {
-    //    const mask = self.headerProtection(hp_key, sample);
-    //
-    //    pn_length = (pkt[0] & 0x03) + 1;
-    //    if ((pkt[0] & 0x80) == 0x80) { // Long header.
-    //        pkt[0] ^= mask[0] & 0x0f;
-    //    } else {
-    //        pkt[0] ^= mask[0] & 0x1f;
-    //    }
-    //    for (pn_offset..pn_offset+pn_length) |i| {
-    //        pkt[i] ^= mask[1+i];
-    //    }
-    //}
+    pub fn protectHeader(self: QuicCrypto, pkt: []u8, sample: [16]u8, pn_offset: usize) !void {
+        var mask: [16]u8 = undefined;
+        const ctx = initialHeaderProtection.initEnc(self.client_hp);
+        ctx.encrypt(&mask, &sample);
+
+        const pn_length: usize = (pkt[0] & 0x03) + 1;
+        if ((pkt[0] & 0x80) == 0x80) { // Long header.
+            pkt[0] ^= mask[0] & 0x0f;
+        } else {
+            pkt[0] ^= mask[0] & 0x1f;
+        }
+        for (pn_offset..pn_offset + pn_length) |i| {
+            pkt[i] ^= mask[1 + i];
+        }
+    }
 };
 
 // Test data below comes from Appendix A of RFC 9001.

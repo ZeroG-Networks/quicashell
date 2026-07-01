@@ -1,0 +1,109 @@
+// QUIC frame handling from Section 12.4 of RFC 9000.
+const std = @import("std");
+
+const varint = @import("varint.zig");
+
+pub const FrameType = enum(u8) {
+    PADDING = 0x00,
+    //    PING = 0x01,
+    //    ACK1 = 0x02,
+    //    ACK2 = 0x03,
+    //    RESET_STREAM = 0x04,
+    //    STOP_SENDING = 0x05,
+    CRYPTO = 0x06,
+    //    NEW_TOKEN = 0x07,
+    //    STREAM0 = 0x08,
+    // ... TODO
+    //    STREAMN = 0x0F,
+    //    MAX_DATA = 0x10,
+    //    MAX_STREAM_DATA = 0x11,
+    //    MAX_STREAMS1 = 0x12,
+    //    MAX_STREAMS2 = 0x13,
+    //    DATA_BLOCKED = 0x14,
+    //    STREAM_DATA_BLOCKED = 0x15,
+    //    STREAMS_BLOCKED1 = 0x16,
+    //    STREAMS_BLOCKED2 = 0x17,
+    //    NEW_CONNECTION_ID = 0x18,
+    //    RETIRE_CONNECTION_ID = 0x19,
+    //    PATH_CHALLENGE = 0x1A,
+    //    PATH_RESPONSE = 0x1B,
+    //    CONNECTION_CLOSE1 = 0x1C,
+    //    CONNECTION_CLOSE2 = 0x1D,
+    //    HANDSHAKE_DONE = 0x1E,
+};
+
+pub const PaddingFrame = struct {
+    const Self = @This();
+
+    len: usize = undefined,
+
+    pub fn init(sz: usize) PaddingFrame {
+        return PaddingFrame{ .len = sz };
+    }
+
+    pub fn write_frame(self: Self, w: *std.Io.Writer) !void {
+        for (0..self.len) |_| {
+            try w.writeByte(0x00);
+        }
+    }
+
+    pub fn get_length(self: Self) usize {
+        return self.len;
+    } // TODO
+};
+
+pub const CryptoFrame = struct {
+    const Self = @This();
+
+    data: []u8 = undefined,
+    offset: u64 = undefined,
+
+    pub fn init(data: []u8, offset: u64) CryptoFrame {
+        return CryptoFrame{
+            .data = data,
+            .offset = offset,
+        };
+    }
+
+    pub fn write_frame(self: Self, writer: *std.Io.Writer) !void {
+        try varint.writeVarInt(@intFromEnum(FrameType.CRYPTO), writer);
+        try varint.writeVarInt(self.offset, writer);
+        try varint.writeVarInt(self.data.len, writer);
+        try writer.writeAll(self.data);
+    }
+
+    // Return the size that the serialized frame will be.
+    pub fn get_length(self: Self) !usize {
+        var sz: usize = 0;
+        sz += try varint.encodedLen(@intFromEnum(FrameType.CRYPTO));
+        sz += try varint.encodedLen(self.offset);
+        sz += try varint.encodedLen(self.data.len);
+        sz += self.data.len;
+        return sz;
+    }
+};
+
+pub const QuicFrameBody = union(FrameType) {
+    PADDING: PaddingFrame,
+    CRYPTO: CryptoFrame,
+};
+
+pub const QuicFrame = struct {
+    frame_type: FrameType,
+    body: QuicFrameBody,
+};
+
+pub fn write_frame(f: *const QuicFrame, writer: *std.Io.Writer) !void {
+    switch (f.frame_type) {
+        .PADDING => try f.body.PADDING.write_frame(writer),
+        .CRYPTO => try f.body.CRYPTO.write_frame(writer),
+    }
+}
+
+// Return the size that the serialized frame will be.
+pub fn get_length(f: *const QuicFrame) !usize {
+    switch (f.frame_type) {
+        .PADDING => return f.body.PADDING.get_length(),
+        .CRYPTO => return f.body.CRYPTO.get_length(),
+    }
+}

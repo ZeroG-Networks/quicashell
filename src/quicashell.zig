@@ -33,13 +33,13 @@ fn eval(line: []const u8, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocat
             @memcpy(randbytes[i * 4 .. (i + 1) * 4], std.mem.asBytes(&randint));
         }
 
-        var buf = std.Io.Writer.Allocating.init(alloc);
-        defer buf.deinit();
-        var pkt = quicashell.QuicPacket.init();
+        var pkt = quicashell.QuicPacket.init(alloc);
         try pkt.make_initial(randbytes, alloc);
-        try pkt.serialize(&buf);
+        var pkt_writer = std.Io.Writer.Allocating.init(alloc);
+        defer pkt_writer.deinit();
+        try pkt.serialize(&pkt_writer.writer);
         // TODO finish actual socket send
-        try quicashell.hexdumpSlice(buf.written(), output);
+        try quicashell.hexdumpSlice(pkt_writer.written(), output);
     } else {
         try output.print("Invalid command: {s}.\n", .{cmd.?});
     }
