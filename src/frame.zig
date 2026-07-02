@@ -1,5 +1,6 @@
 // QUIC frame handling from Section 12.4 of RFC 9000.
 const std = @import("std");
+const expectEqual = std.testing.expectEqual;
 
 const varint = @import("varint.zig");
 
@@ -55,10 +56,10 @@ pub const PaddingFrame = struct {
 pub const CryptoFrame = struct {
     const Self = @This();
 
-    data: []u8 = undefined,
+    data: []const u8 = undefined,
     offset: u64 = undefined,
 
-    pub fn init(data: []u8, offset: u64) CryptoFrame {
+    pub fn init(data: []const u8, offset: u64) CryptoFrame {
         return CryptoFrame{
             .data = data,
             .offset = offset,
@@ -75,9 +76,9 @@ pub const CryptoFrame = struct {
     // Return the size that the serialized frame will be.
     pub fn get_length(self: Self) !usize {
         var sz: usize = 0;
-        sz += try varint.encodedLen(@intFromEnum(FrameType.CRYPTO));
-        sz += try varint.encodedLen(self.offset);
-        sz += try varint.encodedLen(self.data.len);
+        sz += try varint.lenOfVarInt(@intFromEnum(FrameType.CRYPTO));
+        sz += try varint.lenOfVarInt(self.offset);
+        sz += try varint.lenOfVarInt(self.data.len);
         sz += self.data.len;
         return sz;
     }
@@ -106,4 +107,26 @@ pub fn get_length(f: *const QuicFrame) !usize {
         .PADDING => return f.body.PADDING.get_length(),
         .CRYPTO => return f.body.CRYPTO.get_length(),
     }
+}
+
+test "padding length" {
+    const f = QuicFrame{
+        .frame_type = FrameType.PADDING,
+        .body = QuicFrameBody{
+            .PADDING = PaddingFrame.init(1),
+        },
+    };
+    try expectEqual(1, get_length(&f));
+}
+
+test "crypto length" {
+    const testdata: []const u8 = "test";
+
+    const f = QuicFrame{
+        .frame_type = FrameType.CRYPTO,
+        .body = QuicFrameBody{
+            .CRYPTO = CryptoFrame.init(testdata, 2),
+        },
+    };
+    try expectEqual(7, get_length(&f));
 }

@@ -40,7 +40,7 @@ pub const QuicCrypto = struct {
 
     // The provided protected text and authentication tag will be filled in.
     // TODO: assumes client IV and client key
-    pub fn protectPacket(self: QuicCrypto, protected: []u8, tag: *[16]u8, payload: []u8, header: []u8, pktnum: u64) void {
+    pub fn protectPacket(self: Self, protected: []u8, tag: *[16]u8, payload: []u8, header: []u8, pktnum: u64) void {
         // The unprotected packet header is used as the associated data.
         const assoc = header;
 
@@ -55,11 +55,18 @@ pub const QuicCrypto = struct {
         initialProtection.encrypt(protected, tag, payload, assoc, nonce, self.client_key);
     }
 
+    // Generate the header protection mask.
+    pub fn protectHeaderMask(self: Self, sample: [16]u8, mask: *[5]u8) void {
+        var full_mask: [16]u8 = undefined;
+        const ctx = initialHeaderProtection.initEnc(self.client_hp);
+        ctx.encrypt(&full_mask, &sample);
+        @memcpy(mask, full_mask[0..5]);
+    }
+
     // Apply header protection to a serialized and AEAD protected packet.
     pub fn protectHeader(self: QuicCrypto, pkt: []u8, sample: [16]u8, pn_offset: usize) !void {
-        var mask: [16]u8 = undefined;
-        const ctx = initialHeaderProtection.initEnc(self.client_hp);
-        ctx.encrypt(&mask, &sample);
+        var mask: [5]u8 = undefined;
+        self.protectHeaderMask(sample, &mask);
 
         const pn_length: usize = (pkt[0] & 0x03) + 1;
         if ((pkt[0] & 0x80) == 0x80) { // Long header.
@@ -67,8 +74,8 @@ pub const QuicCrypto = struct {
         } else {
             pkt[0] ^= mask[0] & 0x1f;
         }
-        for (pn_offset..pn_offset + pn_length) |i| {
-            pkt[i] ^= mask[1 + i];
+        for (0..pn_length) |i| {
+            pkt[pn_offset + i] ^= mask[1 + i];
         }
     }
 };
@@ -81,11 +88,18 @@ const test_client_key = [_]u8{ 0x1f, 0x36, 0x96, 0x13, 0xdd, 0x76, 0xd5, 0x46, 0
 const test_client_iv = [_]u8{ 0xfa, 0x04, 0x4b, 0x2f, 0x42, 0xa3, 0xfd, 0x3b, 0x46, 0xfb, 0x25, 0x5c };
 const test_client_hp = [_]u8{ 0x9f, 0x50, 0x44, 0x9e, 0x04, 0xa0, 0xe8, 0x10, 0x28, 0x3a, 0x1e, 0x99, 0x33, 0xad, 0xed, 0xd2 };
 
-test "generate client in" {
+test "generate client initial" {
     const c = QuicCrypto.init(&test_conn_id);
     try expectEqualSlices(u8, &c.initial_secret, &test_initial_secret);
     try expectEqualSlices(u8, &c.client_secret, &test_client_secret);
     try expectEqualSlices(u8, &c.client_key, &test_client_key);
     try expectEqualSlices(u8, &c.client_iv, &test_client_iv);
     try expectEqualSlices(u8, &c.client_hp, &test_client_hp);
+
+    const sample = [16]u8{ 0xd1, 0xb1, 0xc9, 0x8d, 0xd7, 0x68, 0x9f, 0xb8, 0xec, 0x11, 0xd2, 0x42, 0xb1, 0x23, 0xdc, 0x9b };
+
+    const test_mask = [_]u8{ 0x43, 0x7b, 0x9a, 0xec, 0x36 };
+    var mask: [5]u8 = undefined;
+    c.protectHeaderMask(sample, &mask);
+    try expectEqualSlices(u8, &mask, &test_mask);
 }

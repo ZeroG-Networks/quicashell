@@ -61,7 +61,7 @@ pub const QuicPacket = struct {
     frames: std.ArrayList(frame.QuicFrame) = .empty,
 
     // TODO: only meaningful for Initial?
-    token: []u8 = undefined,
+    token: ?[]u8 = null,
 
     // Allocator for temporary buffers needed for crypto, etc.
     alloc: std.mem.Allocator = undefined,
@@ -72,8 +72,12 @@ pub const QuicPacket = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.frames.deinit(self.alloc);
+    }
+
     // Make the packet a QUIC version 1 Initial packet.
-    pub fn make_initial(self: *Self, rand: [32]u8, alloc: std.mem.Allocator) !void {
+    pub fn make_initial(self: *Self, rand: [32]u8) !void {
         self.use_long_form = true;
         // In version 1, the version specific bits are:
         // - 1 bit for the fixed bit (1)
@@ -94,7 +98,7 @@ pub const QuicPacket = struct {
         self.pktnum = 1;
 
         // Make a TLS ClientHello.
-        var buf = std.Io.Writer.Allocating.init(alloc);
+        var buf = std.Io.Writer.Allocating.init(self.alloc);
         defer buf.deinit();
         var client_hello = tls.ClientHello.init(rand);
         try client_hello.serialize(&buf.writer);
@@ -121,10 +125,12 @@ pub const QuicPacket = struct {
         if (self.use_long_form) {
             const payload_len = try self.get_payload_length();
             const len_of_len = try varint.lenOfVarInt(payload_len);
-            pn_offset = 7 + self.dconn_id.bytes.len + self.sconn_id.bytes.len + len_of_len;
+            pn_offset = 7 + self.dconn_id.bytes.len + self.sconn_id_len + len_of_len;
             if (self.quic_pkt_type == QuicPktType.Initial) {
-                const token_len_of_len = try varint.lenOfVarInt(self.token.len);
-                pn_offset += token_len_of_len + self.token.len;
+                var token_len: usize = 0;
+                if (self.token != null) token_len = self.token.?.len;
+                const token_len_of_len = try varint.lenOfVarInt(token_len);
+                pn_offset += token_len_of_len + token_len;
             }
         } else {
             // TODO: abstract to connection ID not destination.
@@ -260,6 +266,25 @@ test "header decode" {
     try expectEqualSlices(u8, p.dconn_id.bytes, &[_]u8{ 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08 });
     try expectEqual(p.sconn_id_len, 0);
     try expectEqual(p.quic_pkt_type, QuicPktType.Initial);
+}
+
+test "pn and sample offset" {
+    var p = QuicPacket.init(std.testing.allocator);
+    defer p.deinit();
+    _ = try p.decode_header(&test_data.test_client_header);
+
+    try expectEqual(p.find_pn_offset(), 17);
+    try expectEqual(p.find_sample_offset(), 21);
+}
+
+test "make initial" {
+    const rand = [_]u8{0} ** 32;
+    var p = QuicPacket.init(std.testing.allocator);
+    defer p.deinit();
+    try p.make_initial(rand);
+
+    try expectEqual(p.find_pn_offset(), 17);
+    try expectEqual(p.find_sample_offset(), 21);
 }
 
 // TODO: support ability to aggregate multiple QUIC packets into a datagram,

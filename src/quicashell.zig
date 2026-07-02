@@ -34,7 +34,7 @@ fn eval(line: []const u8, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocat
         }
 
         var pkt = quicashell.QuicPacket.init(alloc);
-        try pkt.make_initial(randbytes, alloc);
+        try pkt.make_initial(randbytes);
         var pkt_writer = std.Io.Writer.Allocating.init(alloc);
         defer pkt_writer.deinit();
         try pkt.serialize(&pkt_writer.writer);
