@@ -79,6 +79,7 @@ pub fn main(init: std.process.Init) !void {
     try repl(stdin, stdout, io, arena);
 }
 
+// TODO: replace
 test "simple test" {
     const gpa = std.testing.allocator;
     var list: std.ArrayList(i32) = .empty;

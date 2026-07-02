@@ -259,7 +259,7 @@ pub const QuicPacket = struct {
 const test_data = @import("test_data.zig");
 test "header decode" {
     var p = QuicPacket.init(std.testing.allocator);
-    _ = try p.decode_header(&test_data.test_client_header);
+    _ = try p.decode_header(&test_data.client_header);
     try expectEqual(p.use_long_form, true);
     try expectEqual(p.version, QuicVersion1);
     try expectEqual(p.dconn_id_len, 8);
@@ -271,7 +271,7 @@ test "header decode" {
 test "pn and sample offset" {
     var p = QuicPacket.init(std.testing.allocator);
     defer p.deinit();
-    _ = try p.decode_header(&test_data.test_client_header);
+    _ = try p.decode_header(&test_data.client_header);
 
     try expectEqual(p.find_pn_offset(), 17);
     try expectEqual(p.find_sample_offset(), 21);

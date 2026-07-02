@@ -2,6 +2,8 @@
 
 const std = @import("std");
 
+const test_data = @import("test_data.zig");
+
 const expectEqualSlices = std.testing.expectEqualSlices;
 
 const sha256 = std.crypto.hash.sha2.Sha256;
@@ -89,6 +91,8 @@ const test_client_iv = [_]u8{ 0xfa, 0x04, 0x4b, 0x2f, 0x42, 0xa3, 0xfd, 0x3b, 0x
 const test_client_hp = [_]u8{ 0x9f, 0x50, 0x44, 0x9e, 0x04, 0xa0, 0xe8, 0x10, 0x28, 0x3a, 0x1e, 0x99, 0x33, 0xad, 0xed, 0xd2 };
 
 test "generate client initial" {
+    try test_data.loadTestData();
+
     const c = QuicCrypto.init(&test_conn_id);
     try expectEqualSlices(u8, &c.initial_secret, &test_initial_secret);
     try expectEqualSlices(u8, &c.client_secret, &test_client_secret);
@@ -96,10 +100,7 @@ test "generate client initial" {
     try expectEqualSlices(u8, &c.client_iv, &test_client_iv);
     try expectEqualSlices(u8, &c.client_hp, &test_client_hp);
 
-    const sample = [16]u8{ 0xd1, 0xb1, 0xc9, 0x8d, 0xd7, 0x68, 0x9f, 0xb8, 0xec, 0x11, 0xd2, 0x42, 0xb1, 0x23, 0xdc, 0x9b };
-
-    const test_mask = [_]u8{ 0x43, 0x7b, 0x9a, 0xec, 0x36 };
     var mask: [5]u8 = undefined;
-    c.protectHeaderMask(sample, &mask);
-    try expectEqualSlices(u8, &mask, &test_mask);
+    c.protectHeaderMask(test_data.client_sample, &mask);
+    try expectEqualSlices(u8, &mask, &test_data.client_mask);
 }
