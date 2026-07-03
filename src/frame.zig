@@ -90,8 +90,46 @@ pub const QuicFrameBody = union(FrameType) {
 };
 
 pub const QuicFrame = struct {
-    frame_type: FrameType,
-    body: QuicFrameBody,
+    const Self = @This();
+
+    frame_type: FrameType = undefined,
+    body: QuicFrameBody = undefined,
+
+    pub fn init() QuicFrame {
+        return QuicFrame{};
+    }
+
+    pub fn deinit(self: *Self) void {
+        _ = self;
+    }
+
+    // Read this frame in from a buffer, and return number of bytes read.
+    pub fn decode(self: *Self, buf: []const u8) !usize {
+        var bytes_read: usize = 0;
+        self.frame_type = @enumFromInt(try varint.readVarInt(buf));
+        bytes_read += varint.decodedLen(buf[0]);
+
+        switch (self.frame_type) {
+            .PADDING => self.body = QuicFrameBody{
+                .PADDING = PaddingFrame.init(0),
+            },
+            .CRYPTO => {
+                const offset = try varint.readVarInt(buf[bytes_read..]);
+                bytes_read += varint.decodedLen(buf[bytes_read]);
+                const length = try varint.readVarInt(buf[bytes_read..]);
+                bytes_read += varint.decodedLen(buf[bytes_read]);
+                // TODO: copy the data like this?
+                // const data = try alloc.dupe(u8, buf[bytes_read .. bytes_read + length]);
+                const data = buf[bytes_read .. bytes_read + length];
+                bytes_read += length;
+
+                self.body = QuicFrameBody{
+                    .CRYPTO = CryptoFrame.init(data, offset),
+                };
+            },
+        }
+        return bytes_read;
+    }
 };
 
 pub fn write_frame(f: *const QuicFrame, writer: *std.Io.Writer) !void {

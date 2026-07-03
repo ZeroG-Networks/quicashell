@@ -7,7 +7,7 @@ const expectEqualSlices = std.testing.expectEqualSlices;
 
 const VarIntError = error{TooBig};
 
-// Return the number of bytes a value will be encoded to.
+// Return the number of bytes a value will be encoded to minimally.
 pub fn lenOfVarInt(value: u64) VarIntError!u8 {
     if (value < 64) return 1;
     if (value < 16_383) return 2;
@@ -16,6 +16,7 @@ pub fn lenOfVarInt(value: u64) VarIntError!u8 {
     return VarIntError.TooBig;
 }
 
+// Return a byte with the encoded minimal length.
 pub fn encodedLen(value: u64) VarIntError!u8 {
     if (value < 64) return 0x00;
     if (value < 16_383) return 0x40;
@@ -73,6 +74,18 @@ pub fn readVarInt(encoded: []const u8) !u64 {
         value = (value << 8) | encoded[i];
     }
     return value;
+}
+
+// Return the length in bytes based on encoding in first byte.
+pub fn decodedLen(encoded: u8) usize {
+    return @as(u8, 1) << @as(u3, @truncate(encoded >> 6));
+}
+
+test "length decoding" {
+    try expectEqual(decodedLen(0), 1);
+    try expectEqual(decodedLen(1 << 6), 2);
+    try expectEqual(decodedLen(2 << 6), 4);
+    try expectEqual(decodedLen(3 << 6), 8);
 }
 
 // Examples from RFC 9000, Appendix A.1.
