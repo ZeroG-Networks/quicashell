@@ -25,6 +25,17 @@ fn eval(line: []const u8, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocat
         endpoint = try quicashell.Quic.init(io, "0.0.0.0", 24242);
         // TODO: Allow local port and IP to be specified.
     } else if (std.mem.eql(u8, cmd.?, "sendinit") == true) {
+        // TODO: The endpoint should be created as a precondition?
+        endpoint = try quicashell.Quic.init(io, "0.0.0.0", 24242);
+        // TODO: Allow local port and IP to be specified.
+
+        var dest_host = it.next();
+        if (dest_host == null) dest_host = "127.0.0.1";
+        var dest_port_str = it.next();
+        if (dest_port_str == null) dest_port_str = "55555";
+        const dest_port = try std.fmt.parseInt(u16, dest_port_str.?, 10);
+        const dest_addr = try std.Io.net.IpAddress.resolve(io, dest_host.?, dest_port);
+
         var randbytes = [_]u8{0} ** 32;
         const now_ms = std.Io.Clock.now(.real, io).toMilliseconds();
         var rng = std.Random.DefaultPrng.init(@as(u64, @bitCast(now_ms)));
@@ -38,8 +49,8 @@ fn eval(line: []const u8, output: *std.Io.Writer, io: Io, alloc: std.mem.Allocat
         var pkt_writer = std.Io.Writer.Allocating.init(alloc);
         defer pkt_writer.deinit();
         try pkt.serialize(&pkt_writer.writer);
-        // TODO finish actual socket send
-        try quicashell.hexdumpSlice(pkt_writer.written(), output);
+        // TODO try quicashell.hexdumpSlice(pkt_writer.written(), output);
+        try endpoint.sendPacket(pkt_writer.written(), dest_addr);
     } else {
         try output.print("Invalid command: {s}.\n", .{cmd.?});
     }

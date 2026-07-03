@@ -6,6 +6,7 @@ pub const Quic = struct {
     const Self = @This();
 
     socket: std.Io.net.Socket = undefined,
+    io: std.Io = undefined,
 
     pub fn init(io: std.Io, ip: []const u8, port: u16) !Quic {
         const address = try net.IpAddress.parse(ip, port);
@@ -14,10 +15,14 @@ pub const Quic = struct {
             .mode = .dgram,
             .protocol = .udp,
         });
-        return Quic{ .socket = socket };
+        return Quic{ .socket = socket, .io = io };
     }
 
-    pub fn deinit(self: Self, io: std.Io) void {
-        self.socket.close(io);
+    pub fn deinit(self: Self) void {
+        self.socket.close(self.io);
+    }
+
+    pub fn sendPacket(self: Self, pkt: []u8, dest: net.IpAddress) !void {
+        try self.socket.send(self.io, &dest, pkt);
     }
 };

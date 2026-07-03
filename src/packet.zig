@@ -17,6 +17,8 @@ const DefaultSourceConnIdLen: u8 = 0;
 
 const AuthTagSz: usize = 16;
 
+const QuicSmallestMaxDgram: usize = 1200;
+
 const QuicPacketError = error{
     FixedBitError, // Indicates unexpected QUICv1 long header fixed bit.
     PacketTypeError, // Indicates unknown packet type value.
@@ -115,8 +117,7 @@ pub const QuicPacket = struct {
         const dcid_bytes = [_]u32{ 0x12345678, 0x9ABCDEF0 };
         self.dconn_id = ConnectionId.init(std.mem.sliceAsBytes(dcid_bytes[0..]), 1);
         self.sconn_id_len = DefaultSourceConnIdLen;
-        // TODO: left undefined
-        //self.sconn_id = ConnectionId.init();
+        self.sconn_id = ConnectionId.init(&[_]u8{}, 1); // No source connection ID.
 
         self.quic_pkt_type = QuicPktType.Initial;
         self.pktnum = 1;
@@ -127,6 +128,34 @@ pub const QuicPacket = struct {
         var client_hello = tls.ClientHello.init(rand);
         try client_hello.serialize(&buf.writer);
         try self.add_crypto_frame(buf.written());
+
+        var padding_needed = QuicSmallestMaxDgram;
+        padding_needed -= try self.get_header_length();
+        padding_needed -= try self.get_payload_length();
+        try self.add_padding(padding_needed);
+    }
+
+    // Compute the packet header length.
+    fn get_header_length(self: Self) !usize {
+        var hlen: usize = 1; // First byte.
+        if (self.use_long_form) {
+            hlen += 6; // version + src & dst conn IDs.
+            hlen += self.sconn_id.bytes.len;
+            hlen += self.dconn_id.bytes.len;
+
+            var token_len: usize = 0;
+            if (self.token != null) token_len = self.token.?.len;
+            const token_len_of_len = try varint.lenOfVarInt(token_len);
+            hlen += token_len_of_len + token_len;
+            const payload_len = try self.get_payload_length();
+            const pktnum_len = self.get_pktnum_len();
+            hlen += try varint.lenOfVarInt(payload_len + pktnum_len);
+            hlen += self.get_pktnum_len();
+        } else {
+            // TODO short for header length.
+        }
+
+        return hlen;
     }
 
     // Compute the packet length value that will go into the header.
@@ -189,12 +218,12 @@ pub const QuicPacket = struct {
         // Determine the length field to encode.
         var len: usize = try self.get_payload_length();
         const pktnum_len = self.get_pktnum_len();
-        var token_len: u64 = 0;
-        if (self.token != null)
-            token_len = self.token.?.len;
         len += pktnum_len;
 
         if (self.quic_pkt_type == QuicPktType.Initial) {
+            var token_len: u64 = 0;
+            if (self.token != null) token_len = self.token.?.len;
+
             try varint.writeVarInt(@as(u64, @intCast(token_len)), w);
             if (self.token != null) try w.writeAll(self.token.?);
 
