@@ -235,10 +235,12 @@ pub const QuicPacket = struct {
         temp_crypto.protectPacket(ct_payload, &tag, pt_payload.written(), header.written(), self.pktnum);
 
         // Generate the header protection sample.
-        const sample_offset = try self.find_sample_offset();
+        var sample_offset = try self.find_sample_offset();
+        sample_offset -= header.written().len;
         const sample_len: usize = 16;
         var sample: [sample_len]u8 = undefined;
         @memcpy(&sample, ct_payload[sample_offset .. sample_offset + sample_len]);
+
         // Finally, apply header protection.
         const pn_offset = try self.find_pn_offset();
         try temp_crypto.protectHeader(header.written(), sample, pn_offset);
@@ -247,6 +249,8 @@ pub const QuicPacket = struct {
         try w.writeAll(header.written());
         try w.writeAll(ct_payload);
         try w.writeAll(&tag);
+
+        self.alloc.free(ct_payload);
     }
 
     // Read this packet from a buffer, e.g. received from a UDP socket.
@@ -343,6 +347,9 @@ test "RFC 9001 client initial" {
     defer hdr.deinit();
     try p.serialize_header(&hdr.writer);
     try expectEqualSlices(u8, hdr.written(), &test_data.client_header);
+
+    try expectEqual(p.find_pn_offset(), 18);
+    try expectEqual(p.find_sample_offset(), 22);
 
     // Serialize protected packet to a buffer and check.
     var pkt_writer = std.Io.Writer.Allocating.init(std.testing.allocator);
